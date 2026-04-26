@@ -1,0 +1,15 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" fill="#0E8A6B"/>
+  <defs>
+    <g id="batshape">
+      <polygon points="250,230 817,751 751,817 230,250" fill="#C8A06B"/>
+      <circle cx="784" cy="784" r="47" fill="#C8A06B"/>
+      <circle cx="240" cy="240" r="28" fill="#C8A06B"/>
+    </g>
+  </defs>
+  <use href="#batshape"/>
+  <use href="#batshape" transform="rotate(90 512 512)"/>
+  <circle cx="512" cy="512" r="140" fill="#F4D03F"/>
+  <path d="M 412 470 Q 512 440 612 470" stroke="#D03C2A" stroke-width="11" fill="none" stroke-linecap="round" stroke-dasharray="18 12"/>
+  <path d="M 412 554 Q 512 584 612 554" stroke="#D03C2A" stroke-width="11" fill="none" stroke-linecap="round" stroke-dasharray="18 12"/>
+</svg>
