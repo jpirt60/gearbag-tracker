@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/gear.dart';
+import 'home.dart' show iconForGearType, StatusChip;
 
 class GearDetailScreen extends StatefulWidget {
   const GearDetailScreen({super.key, required this.gear});
@@ -23,7 +24,10 @@ class _GearDetailScreenState extends State<GearDetailScreen> {
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('Add')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Add'),
+          ),
         ],
       ),
     );
@@ -35,6 +39,9 @@ class _GearDetailScreenState extends State<GearDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final g = widget.gear;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Scaffold(
       appBar: AppBar(title: Text('${g.brand} ${g.model}')),
       floatingActionButton: FloatingActionButton.extended(
@@ -42,41 +49,104 @@ class _GearDetailScreenState extends State<GearDetailScreen> {
         icon: const Icon(Icons.note_add),
         label: const Text('Add Usage Note'),
       ),
-      body: Padding(
+      body: ListView(
         padding: const EdgeInsets.all(16),
-        child: ListView(
-          children: [
-            _kv('Type', g.type),
-            _kv('Status', g.status),
-            _kv('Notes', g.notes.isEmpty ? '—' : g.notes),
-            const SizedBox(height: 12),
-            Text('Usage Notes', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            if (g.usageNotes.isEmpty)
-              const Text('No usage notes yet.')
-            else
-              ...g.usageNotes.map((n) => Card(
+        children: [
+          // Header card with type icon, name, type label, and status chip
+          Card(
+            elevation: 0,
+            color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: scheme.primaryContainer,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      iconForGearType(g.type),
+                      color: scheme.onPrimaryContainer,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${g.brand} ${g.model}',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Text(
+                              _cap(g.type),
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            StatusChip(status: g.status),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Notes section
+          Text('Notes', style: theme.textTheme.labelLarge),
+          const SizedBox(height: 6),
+          Text(
+            g.notes.isEmpty ? 'No notes added.' : g.notes,
+            style: g.notes.isEmpty
+                ? theme.textTheme.bodyMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontStyle: FontStyle.italic,
+            )
+                : theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 24),
+
+          // Usage notes section
+          Text('Usage Notes', style: theme.textTheme.labelLarge),
+          const SizedBox(height: 8),
+          if (g.usageNotes.isEmpty)
+            Text(
+              'No usage notes yet. Tap the button below to add one.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontStyle: FontStyle.italic,
+              ),
+            )
+          else
+            ...g.usageNotes.map(
+                  (n) => Card(
+                elevation: 0,
+                color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
                 child: ListTile(
-                  leading: const Icon(Icons.edit_note),
+                  leading: Icon(Icons.edit_note, color: scheme.onSurfaceVariant),
                   title: Text(n),
                 ),
-              )),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _kv(String k, String v) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(width: 100, child: Text('$k:', style: const TextStyle(fontWeight: FontWeight.w600))),
-          Expanded(child: Text(v)),
+              ),
+            ),
+          const SizedBox(height: 80), // padding for FAB
         ],
       ),
     );
   }
+
+  String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 }
