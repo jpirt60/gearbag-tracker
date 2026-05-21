@@ -6,6 +6,7 @@ import '../data/sample_data.dart';
 import 'edit_gear.dart';
 import 'gear_detail.dart';
 import 'about.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Returns the Material Icon used for a given gear type.
 /// Centralized so home, detail, and any future screens stay consistent.
@@ -246,6 +247,14 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('Gear Bag Tracker'),
         actions: [
           IconButton(onPressed: _openAbout, icon: const Icon(Icons.info_outline)),
+          IconButton(
+            onPressed: () async {
+              await Supabase.instance.client.auth.signOut();
+              // AuthGate will auto-switch to LoginScreen.
+            },
+            icon: const Icon(Icons.logout),
+            tooltip: 'Log out',
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
