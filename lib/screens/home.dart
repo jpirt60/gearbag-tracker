@@ -6,6 +6,7 @@ import '../models/gear.dart';
 import 'edit_gear.dart';
 import 'gear_detail.dart';
 import 'about.dart';
+import '../data/sync_service.dart';
 
 /// Returns the Material Icon used for a given gear type.
 IconData iconForGearType(String type) {
@@ -69,6 +70,21 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadGear();
+    SyncService.instance.addListener(_onSyncStateChanged);
+  }
+
+  @override
+  void dispose() {
+    SyncService.instance.removeListener(_onSyncStateChanged);
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onSyncStateChanged() {
+    // When sync goes from syncing → idle, reload from local DB
+    if (SyncService.instance.state == SyncState.idle) {
+      _loadGear();
+    }
   }
 
   String get _userId => Supabase.instance.client.auth.currentUser!.id;
@@ -244,6 +260,24 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Gear Bag Tracker'),
         actions: [
+          ListenableBuilder(
+            listenable: SyncService.instance,
+            builder: (context, _) {
+              if (SyncService.instance.state == SyncState.syncing) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
           IconButton(onPressed: _openAbout, icon: const Icon(Icons.info_outline)),
           IconButton(
             onPressed: () async {
