@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/gear.dart';
+import 'home.dart' show labelForGearType;
 
 class EditGearScreen extends StatefulWidget {
   const EditGearScreen({super.key, this.initial});
@@ -11,7 +12,7 @@ class EditGearScreen extends StatefulWidget {
 
 class _EditGearScreenState extends State<EditGearScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _types = const ['bat', 'glove', 'cleats', 'bag', 'balls', 'other'];
+  final _types = const ['bat', 'glove', 'cleats', 'bag', 'balls', 'batting_gloves', 'other'];
   final _statuses = const ['active', 'benched'];
 
   late String _type;
@@ -35,19 +36,19 @@ class _EditGearScreenState extends State<EditGearScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     _formKey.currentState!.save();
 
-    final result = (widget.initial ?? Gear(
-      id: -1, // caller will replace with next id
+    // Return a transient Gear holding just the form values.
+    // home.dart wires up id/userId/timestamps for new items,
+    // or merges into the existing Gear for edits.
+    final result = Gear(
+      id: widget.initial?.id ?? '',
+      userId: widget.initial?.userId ?? '',
       type: _type,
       brand: _brand,
       model: _model,
       status: _status,
-      notes: _notes,
-    )).copyWith(
-      type: _type,
-      brand: _brand,
-      model: _model,
-      status: _status,
-      notes: _notes,
+      notes: _notes.isEmpty ? null : _notes,
+      createdAt: widget.initial?.createdAt ?? DateTime.now(),
+      updatedAt: DateTime.now(),
     );
 
     Navigator.pop(context, result);
@@ -67,7 +68,9 @@ class _EditGearScreenState extends State<EditGearScreen> {
               DropdownButtonFormField<String>(
                 value: _type,
                 decoration: const InputDecoration(labelText: 'Type'),
-                items: _types.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+                items: _types
+                    .map((t) => DropdownMenuItem(value: t, child: Text(labelForGearType(t))))
+                    .toList(),
                 onChanged: (v) => setState(() => _type = v!),
               ),
               const SizedBox(height: 12),
@@ -88,7 +91,12 @@ class _EditGearScreenState extends State<EditGearScreen> {
               DropdownButtonFormField<String>(
                 value: _status,
                 decoration: const InputDecoration(labelText: 'Status'),
-                items: _statuses.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                items: _statuses
+                    .map((s) => DropdownMenuItem(
+                  value: s,
+                  child: Text(s[0].toUpperCase() + s.substring(1)),
+                ))
+                    .toList(),
                 onChanged: (v) => setState(() => _status = v!),
               ),
               const SizedBox(height: 12),

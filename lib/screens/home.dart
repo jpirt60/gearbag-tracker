@@ -1,34 +1,43 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
+import '../data/database_helper.dart';
 import '../models/gear.dart';
-import '../data/sample_data.dart';
 import 'edit_gear.dart';
 import 'gear_detail.dart';
 import 'about.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Returns the Material Icon used for a given gear type.
-/// Centralized so home, detail, and any future screens stay consistent.
 IconData iconForGearType(String type) {
   switch (type.toLowerCase()) {
     case 'bat':
-      return Icons.sports_cricket; // closest Material match for a bat shape
+      return Icons.sports_cricket;
     case 'glove':
-      return Icons.back_hand; // hand icon — best fit for "glove"
+      return Icons.back_hand;
     case 'cleats':
       return Icons.directions_run;
     case 'bag':
-      return Icons.work_outline; // duffle/bag silhouette
+      return Icons.work_outline;
     case 'balls':
       return Icons.sports_baseball;
+    case 'batting_gloves':
+      return Icons.pan_tool_outlined;
     case 'other':
     default:
       return Icons.inventory_2_outlined;
   }
 }
 
-/// Returns the color used to indicate gear status.
+/// Display label for gear types (handles snake_case from DB).
+String labelForGearType(String type) {
+  switch (type.toLowerCase()) {
+    case 'batting_gloves':
+      return 'Batting Gloves';
+    default:
+      return type.isEmpty ? type : type[0].toUpperCase() + type.substring(1);
+  }
+}
+
 Color colorForStatus(String status, ColorScheme scheme) {
   switch (status.toLowerCase()) {
     case 'active':
@@ -48,13 +57,11 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static const String _storageKey = 'gear_list_v1';
-
+  final _uuid = const Uuid();
   List<Gear> _gear = [];
   bool _loaded = false;
   final TextEditingController _searchCtrl = TextEditingController();
 
-  // Filters
   String _typeFilter = 'All';
   String _statusFilter = 'All';
 
@@ -64,8 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadGear();
   }
 
-  int get _nextId =>
-      (_gear.isEmpty ? 0 : _gear.map((g) => g.id).reduce((a, b) => a > b ? a : b)) + 1;
+  String get _userId => Supabase.instance.client.auth.currentUser!.id;
 
   List<Gear> get _visible {
     final q = _searchCtrl.text.trim().toLowerCase();
@@ -84,39 +90,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }).toList();
   }
 
-  // --- Persistence ---
-
   Future<void> _loadGear() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_storageKey);
-
-    if (raw != null) {
-      try {
-        final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
-        setState(() {
-          _gear = list.map(Gear.fromJson).toList();
-          _loaded = true;
-        });
-        return;
-      } catch (_) {
-        // Stored data is corrupt — fall through to seed
-      }
-    }
-
+    final list = await DatabaseHelper.instance.getGearList(_userId);
+    if (!mounted) return;
     setState(() {
-      _gear = kSeedGear.map((g) => g.copyWith()).toList();
+      _gear = list;
       _loaded = true;
     });
-    await _saveGear();
   }
-
-  Future<void> _saveGear() async {
-    final prefs = await SharedPreferences.getInstance();
-    final json = jsonEncode(_gear.map((g) => g.toJson()).toList());
-    await prefs.setString(_storageKey, json);
-  }
-
-  // --- Mutations ---
 
   void _addGear() async {
     final result = await Navigator.push<Gear>(
@@ -124,10 +105,21 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => const EditGearScreen()),
     );
     if (result != null) {
-      setState(() {
-        _gear.add(result.copyWith(id: _nextId));
-      });
-      await _saveGear();
+      final now = DateTime.now();
+      final newGear = Gear(
+        id: _uuid.v4(),
+        userId: _userId,
+        type: result.type,
+        brand: result.brand,
+        model: result.model,
+        status: result.status,
+        notes: result.notes,
+        createdAt: now,
+        updatedAt: now,
+        syncStatus: 'pending_create',
+      );
+      await DatabaseHelper.instance.insertGear(newGear);
+      await _loadGear();
     }
   }
 
@@ -137,11 +129,17 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => EditGearScreen(initial: g)),
     );
     if (updated != null) {
-      setState(() {
-        final i = _gear.indexWhere((x) => x.id == g.id);
-        if (i != -1) _gear[i] = updated.copyWith(id: g.id, usageNotes: g.usageNotes);
-      });
-      await _saveGear();
+      final edited = g.copyWith(
+        type: updated.type,
+        brand: updated.brand,
+        model: updated.model,
+        status: updated.status,
+        notes: updated.notes,
+        updatedAt: DateTime.now(),
+        syncStatus: g.syncStatus == 'pending_create' ? 'pending_create' : 'pending_update',
+      );
+      await DatabaseHelper.instance.updateGear(edited);
+      await _loadGear();
     }
   }
 
@@ -155,9 +153,10 @@ class _HomeScreenState extends State<HomeScreen> {
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           FilledButton(
             onPressed: () async {
-              setState(() => _gear.removeWhere((x) => x.id == g.id));
+              await DatabaseHelper.instance.softDeleteGear(g.id);
+              if (!ctx.mounted) return;
               Navigator.pop(ctx);
-              await _saveGear();
+              await _loadGear();
             },
             child: const Text('Delete'),
           ),
@@ -166,8 +165,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openDetail(Gear g) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => GearDetailScreen(gear: g)));
+  void _openDetail(Gear g) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => GearDetailScreen(gear: g)),
+    );
+    // Refresh in case usage notes changed
+    await _loadGear();
   }
 
   void _openAbout() {
@@ -191,9 +195,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 16),
               Text(
                 'No gear yet',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 6),
               Text(
@@ -208,7 +210,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
-    // Filtered empty (have gear, none matches current filters)
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -221,10 +222,7 @@ class _HomeScreenState extends State<HomeScreen> {
               color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
             ),
             const SizedBox(height: 12),
-            Text(
-              'No matching gear',
-              style: theme.textTheme.titleMedium,
-            ),
+            Text('No matching gear', style: theme.textTheme.titleMedium),
             const SizedBox(height: 6),
             Text(
               'Try adjusting your search or filters.',
@@ -250,7 +248,6 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             onPressed: () async {
               await Supabase.instance.client.auth.signOut();
-              // AuthGate will auto-switch to LoginScreen.
             },
             icon: const Icon(Icons.logout),
             tooltip: 'Log out',
@@ -288,9 +285,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     groupValue: _typeFilter,
                     onSelected: (v) => setState(() => _typeFilter = v),
                   ),
-                  for (final t in const ['bat', 'glove', 'cleats', 'bag', 'balls', 'other'])
+                  for (final t in const [
+                    'bat',
+                    'glove',
+                    'cleats',
+                    'bag',
+                    'balls',
+                    'batting_gloves',
+                    'other',
+                  ])
                     _FilterChip<String>(
-                      label: t[0].toUpperCase() + t.substring(1),
+                      label: labelForGearType(t),
                       value: t,
                       groupValue: _typeFilter,
                       onSelected: (v) => setState(() => _typeFilter = v),
@@ -328,8 +333,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   final g = _visible[i];
                   return ListTile(
                     leading: CircleAvatar(
-                      backgroundColor:
-                      scheme.primaryContainer.withValues(alpha: 0.6),
+                      backgroundColor: scheme.primaryContainer.withValues(alpha: 0.6),
                       child: Icon(
                         iconForGearType(g.type),
                         color: scheme.onPrimaryContainer,
@@ -344,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: const EdgeInsets.only(top: 4),
                       child: Row(
                         children: [
-                          Text(_cap(g.type)),
+                          Text(labelForGearType(g.type)),
                           const SizedBox(width: 8),
                           StatusChip(status: g.status),
                         ],
@@ -370,12 +374,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
-  String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 }
 
-/// Reusable status indicator: colored dot + label in a soft pill.
-/// Public so other screens (gear_detail) can use the same component.
 class StatusChip extends StatelessWidget {
   const StatusChip({super.key, required this.status});
   final String status;
@@ -399,19 +399,12 @@ class StatusChip extends StatelessWidget {
           Container(
             width: 6,
             height: 6,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 6),
           Text(
             label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: color,
-            ),
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: color),
           ),
         ],
       ),
