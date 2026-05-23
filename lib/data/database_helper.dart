@@ -169,4 +169,47 @@ class DatabaseHelper {
       whereArgs: [id],
     );
   }
+  // ============================================================
+// SYNC HELPERS
+// ============================================================
+
+  Future<List<Gear>> getPendingGear() async {
+    final db = await database;
+    final rows = await db.query(
+      'gear',
+      where: 'sync_status != ?',
+      whereArgs: ['clean'],
+    );
+    return rows.map(Gear.fromMap).toList();
+  }
+
+  Future<List<UsageNote>> getPendingUsageNotes() async {
+    final db = await database;
+    final rows = await db.query(
+      'usage_notes',
+      where: 'sync_status != ?',
+      whereArgs: ['clean'],
+    );
+    return rows.map(UsageNote.fromMap).toList();
+  }
+
+  Future<void> markGearClean(String id) async {
+    final db = await database;
+    await db.update(
+      'gear',
+      {'sync_status': 'clean'},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> markUsageNoteClean(String id) async {
+    final db = await database;
+    await db.update(
+      'usage_notes',
+      {'sync_status': 'clean'},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
 }

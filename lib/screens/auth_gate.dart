@@ -11,8 +11,35 @@ class AuthGate extends StatefulWidget {
   State<AuthGate> createState() => _AuthGateState();
 }
 
-class _AuthGateState extends State<AuthGate> {
+class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   String? _syncedForUserId;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // App came back to foreground — try to push any pending changes,
+      // then pull any remote updates
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        () async {
+          await SyncService.instance.pushPending();
+          await SyncService.instance.pullAll();
+        }();
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,16 +49,15 @@ class _AuthGateState extends State<AuthGate> {
         final session = Supabase.instance.client.auth.currentSession;
 
         if (session == null) {
-          // Clear sync marker on logout so next login re-syncs
           _syncedForUserId = null;
           return const LoginScreen();
         }
 
-        // Trigger initial pull once per user session
         if (_syncedForUserId != session.user.id) {
           _syncedForUserId = session.user.id;
-          // Fire-and-forget; the HomeScreen will refresh after
           WidgetsBinding.instance.addPostFrameCallback((_) async {
+            // On login, push any pending then pull
+            await SyncService.instance.pushPending();
             final ok = await SyncService.instance.pullAll();
             if (!mounted) return;
             if (!ok && SyncService.instance.lastError != null) {

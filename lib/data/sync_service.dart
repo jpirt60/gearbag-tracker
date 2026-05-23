@@ -65,6 +65,121 @@ class SyncService extends ChangeNotifier {
     }
   }
 
+  /// Push all locally-pending changes to Supabase.
+  /// Called after local mutations and on app foreground.
+  Future<bool> pushPending() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) {
+      _lastError = 'Not authenticated';
+      return false;
+    }
+
+    // Don't change state for push if a pull is already running
+    final wasIdle = _state == SyncState.idle;
+    if (wasIdle) {
+      _state = SyncState.syncing;
+      notifyListeners();
+    }
+
+    try {
+      await _pushPendingGear();
+      await _pushPendingUsageNotes();
+
+      if (wasIdle) {
+        _state = SyncState.idle;
+        notifyListeners();
+      }
+      return true;
+    } catch (e) {
+      _state = SyncState.error;
+      _lastError = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+  /// Manual sync triggered by user action (refresh button / pull-to-refresh).
+  /// Pushes any pending local changes then pulls remote state.
+  Future<bool> syncNow() async {
+    final pushOk = await pushPending();
+    final pullOk = await pullAll();
+    return pushOk && pullOk;
+  }
+
+  Future<void> _pushPendingGear() async {
+    final dh = DatabaseHelper.instance;
+    final pending = await dh.getPendingGear();
+
+    for (final gear in pending) {
+      try {
+        if (gear.syncStatus == 'pending_delete') {
+          // Soft delete on remote
+          await _supabase
+              .from('gear')
+              .update({
+            'deleted_at': gear.deletedAt?.toIso8601String() ??
+                DateTime.now().toIso8601String(),
+            'updated_at': gear.updatedAt.toIso8601String(),
+          })
+              .eq('id', gear.id);
+        } else {
+          // pending_create or pending_update — upsert
+          await _supabase.from('gear').upsert({
+            'id': gear.id,
+            'user_id': gear.userId,
+            'type': gear.type,
+            'brand': gear.brand,
+            'model': gear.model,
+            'status': gear.status,
+            'notes': gear.notes,
+            'created_at': gear.createdAt.toIso8601String(),
+            'updated_at': gear.updatedAt.toIso8601String(),
+            'deleted_at': gear.deletedAt?.toIso8601String(),
+          });
+        }
+        await dh.markGearClean(gear.id);
+      } catch (e) {
+        // Leave the row pending — next push will retry
+        // Don't throw, keep processing other pending rows
+        // ignore: avoid_print
+        print('Failed to push gear ${gear.id}: $e');
+      }
+    }
+  }
+
+  Future<void> _pushPendingUsageNotes() async {
+    final dh = DatabaseHelper.instance;
+    final pending = await dh.getPendingUsageNotes();
+
+    for (final note in pending) {
+      try {
+        if (note.syncStatus == 'pending_delete') {
+          await _supabase
+              .from('usage_notes')
+              .update({
+            'deleted_at': note.deletedAt?.toIso8601String() ??
+                DateTime.now().toIso8601String(),
+            'updated_at': note.updatedAt.toIso8601String(),
+          })
+              .eq('id', note.id);
+        } else {
+          await _supabase.from('usage_notes').upsert({
+            'id': note.id,
+            'gear_id': note.gearId,
+            'user_id': note.userId,
+            'text': note.text,
+            'created_at': note.createdAt.toIso8601String(),
+            'updated_at': note.updatedAt.toIso8601String(),
+            'deleted_at': note.deletedAt?.toIso8601String(),
+          });
+        }
+        await dh.markUsageNoteClean(note.id);
+      } catch (e) {
+        // ignore: avoid_print
+        print('Failed to push usage note ${note.id}: $e');
+      }
+    }
+  }
+
   Future<void> _mergeGear(List<Map<String, dynamic>> remoteRows) async {
     final dh = DatabaseHelper.instance;
 

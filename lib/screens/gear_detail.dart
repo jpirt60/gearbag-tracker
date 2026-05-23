@@ -6,6 +6,7 @@ import '../data/database_helper.dart';
 import '../models/gear.dart';
 import '../models/usage_note.dart';
 import 'home.dart' show iconForGearType, labelForGearType, StatusChip;
+import '../data/sync_service.dart';
 
 class GearDetailScreen extends StatefulWidget {
   const GearDetailScreen({super.key, required this.gear});
@@ -73,11 +74,13 @@ class _GearDetailScreenState extends State<GearDetailScreen> {
     );
     await DatabaseHelper.instance.insertUsageNote(note);
     await _loadNotes();
+    SyncService.instance.pushPending();
   }
 
   Future<void> _deleteNote(UsageNote note) async {
     await DatabaseHelper.instance.softDeleteUsageNote(note.id);
     await _loadNotes();
+    SyncService.instance.pushPending();
   }
 
   @override

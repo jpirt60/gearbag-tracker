@@ -136,6 +136,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       await DatabaseHelper.instance.insertGear(newGear);
       await _loadGear();
+      SyncService.instance.pushPending();
     }
   }
 
@@ -156,6 +157,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       await DatabaseHelper.instance.updateGear(edited);
       await _loadGear();
+      SyncService.instance.pushPending();
     }
   }
 
@@ -173,6 +175,7 @@ class _HomeScreenState extends State<HomeScreen> {
               if (!ctx.mounted) return;
               Navigator.pop(ctx);
               await _loadGear();
+              SyncService.instance.pushPending();
             },
             child: const Text('Delete'),
           ),
@@ -278,6 +281,21 @@ class _HomeScreenState extends State<HomeScreen> {
               return const SizedBox.shrink();
             },
           ),
+          ListenableBuilder(
+            listenable: SyncService.instance,
+            builder: (context, _) {
+              final syncing = SyncService.instance.state == SyncState.syncing;
+              return IconButton(
+                onPressed: syncing
+                    ? null
+                    : () async {
+                  await SyncService.instance.syncNow();
+                },
+                icon: const Icon(Icons.sync),
+                tooltip: 'Sync now',
+              );
+            },
+          ),
           IconButton(onPressed: _openAbout, icon: const Icon(Icons.info_outline)),
           IconButton(
             onPressed: () async {
@@ -358,49 +376,67 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 8),
             Expanded(
-              child: _visible.isEmpty
-                  ? _buildEmptyState()
-                  : ListView.separated(
-                itemCount: _visible.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (_, i) {
-                  final g = _visible[i];
-                  return ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: scheme.primaryContainer.withValues(alpha: 0.6),
-                      child: Icon(
-                        iconForGearType(g.type),
-                        color: scheme.onPrimaryContainer,
-                        size: 20,
+              child: RefreshIndicator(
+                onRefresh: () async {
+                  await SyncService.instance.syncNow();
+                  // pullAll calls _loadGear via the listener, but for safety:
+                  await _loadGear();
+                },
+                child: _visible.isEmpty
+                    ? ListView(
+                  // RefreshIndicator needs a scrollable child to detect pulls,
+                  // even in the empty state. Single-item ListView wraps the empty UI.
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.6,
+                      child: _buildEmptyState(),
+                    ),
+                  ],
+                )
+                    : ListView.separated(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  itemCount: _visible.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (_, i) {
+                    final g = _visible[i];
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: scheme.primaryContainer.withValues(alpha: 0.6),
+                        child: Icon(
+                          iconForGearType(g.type),
+                          color: scheme.onPrimaryContainer,
+                          size: 20,
+                        ),
                       ),
-                    ),
-                    title: Text(
-                      '${g.brand} ${g.model}',
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Row(
-                        children: [
-                          Text(labelForGearType(g.type)),
-                          const SizedBox(width: 8),
-                          StatusChip(status: g.status),
+                      title: Text(
+                        '${g.brand} ${g.model}',
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(
+                          children: [
+                            Text(labelForGearType(g.type)),
+                            const SizedBox(width: 8),
+                            StatusChip(status: g.status),
+                          ],
+                        ),
+                      ),
+                      onTap: () => _openDetail(g),
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (v) {
+                          if (v == 'edit') _editGear(g);
+                          if (v == 'delete') _deleteGear(g);
+                        },
+                        itemBuilder: (ctx) => const [
+                          PopupMenuItem(value: 'edit', child: Text('Edit')),
+                          PopupMenuItem(value: 'delete', child: Text('Delete')),
                         ],
                       ),
-                    ),
-                    onTap: () => _openDetail(g),
-                    trailing: PopupMenuButton<String>(
-                      onSelected: (v) {
-                        if (v == 'edit') _editGear(g);
-                        if (v == 'delete') _deleteGear(g);
-                      },
-                      itemBuilder: (ctx) => const [
-                        PopupMenuItem(value: 'edit', child: Text('Edit')),
-                        PopupMenuItem(value: 'delete', child: Text('Delete')),
-                      ],
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
             ),
           ],
