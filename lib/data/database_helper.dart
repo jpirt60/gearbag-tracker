@@ -90,6 +90,17 @@ class DatabaseHelper {
     );
     return rows.isEmpty ? null : Gear.fromMap(rows.first);
   }
+  /// Same as getGearById but includes soft-deleted rows. Used by sync.
+  Future<Gear?> getGearByIdIncludingDeleted(String id) async {
+    final db = await database;
+    final rows = await db.query(
+      'gear',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : Gear.fromMap(rows.first);
+  }
 
   Future<void> insertGear(Gear gear) async {
     final db = await database;

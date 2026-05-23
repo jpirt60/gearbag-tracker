@@ -40,17 +40,16 @@ class SyncService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Pull ALL rows (including soft-deleted) so we can reconcile tombstones
       final gearRows = await _supabase
           .from('gear')
           .select()
-          .eq('user_id', user.id)
-          .isFilter('deleted_at', null);
+          .eq('user_id', user.id);
 
       final noteRows = await _supabase
           .from('usage_notes')
           .select()
-          .eq('user_id', user.id)
-          .isFilter('deleted_at', null);
+          .eq('user_id', user.id);
 
       await _mergeGear(gearRows.cast<Map<String, dynamic>>());
       await _mergeUsageNotes(noteRows.cast<Map<String, dynamic>>());
@@ -75,20 +74,24 @@ class SyncService extends ChangeNotifier {
         'sync_status': 'clean',
       });
 
-      final local = await dh.getGearById(remote.id);
+      final local = await dh.getGearByIdIncludingDeleted(remote.id);
 
       if (local == null) {
-        // New to this device — just write it
+        // New to this device — write it (could be a fresh row or a remotely-deleted one we never saw)
         await dh.insertGear(remote);
         continue;
       }
 
       if (local.syncStatus != 'clean') {
-        // Local has unpushed changes — leave it alone, C.4 will resolve
+        // Local has unpushed changes. Last-write-wins by updated_at.
+        // If remote is newer, local edit loses. Otherwise keep local.
+        if (remote.updatedAt.isAfter(local.updatedAt)) {
+          await dh.insertGear(remote);
+        }
         continue;
       }
 
-      // Local is clean; trust remote
+      // Local is clean — remote wins (covers create, update, and delete cases)
       await dh.insertGear(remote);
     }
   }
@@ -102,7 +105,6 @@ class SyncService extends ChangeNotifier {
         'sync_status': 'clean',
       });
 
-      // For usage notes we don't have a getById helper yet; quick query
       final db = await dh.database;
       final existing = await db.query(
         'usage_notes',
@@ -116,8 +118,17 @@ class SyncService extends ChangeNotifier {
         continue;
       }
 
-      final localStatus = existing.first['sync_status'] as String? ?? 'clean';
-      if (localStatus != 'clean') continue;
+      final localRow = existing.first;
+      final localStatus = localRow['sync_status'] as String? ?? 'clean';
+      final localUpdatedAt = DateTime.parse(localRow['updated_at'] as String);
+
+      if (localStatus != 'clean') {
+        // Last-write-wins on conflict
+        if (remote.updatedAt.isAfter(localUpdatedAt)) {
+          await dh.insertUsageNote(remote);
+        }
+        continue;
+      }
 
       await dh.insertUsageNote(remote);
     }
