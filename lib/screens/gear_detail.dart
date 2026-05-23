@@ -25,6 +25,17 @@ class _GearDetailScreenState extends State<GearDetailScreen> {
   void initState() {
     super.initState();
     _loadNotes();
+    SyncService.instance.addListener(_onSyncEvent);
+  }
+
+  @override
+  void dispose() {
+    SyncService.instance.removeListener(_onSyncEvent);
+    super.dispose();
+  }
+
+  void _onSyncEvent() {
+    if (mounted) _loadNotes();
   }
 
   String get _userId => Supabase.instance.client.auth.currentUser!.id;

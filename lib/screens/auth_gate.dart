@@ -50,15 +50,18 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
 
         if (session == null) {
           _syncedForUserId = null;
+          SyncService.instance.stopRealtime();
           return const LoginScreen();
         }
 
         if (_syncedForUserId != session.user.id) {
           _syncedForUserId = session.user.id;
           WidgetsBinding.instance.addPostFrameCallback((_) async {
-            // On login, push any pending then pull
             await SyncService.instance.pushPending();
             final ok = await SyncService.instance.pullAll();
+            if (ok) {
+              SyncService.instance.startRealtime();
+            }
             if (!mounted) return;
             if (!ok && SyncService.instance.lastError != null) {
               ScaffoldMessenger.of(context).showSnackBar(

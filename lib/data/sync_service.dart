@@ -15,6 +15,8 @@ class SyncService extends ChangeNotifier {
   final _supabase = Supabase.instance.client;
   SyncState _state = SyncState.idle;
   String? _lastError;
+  RealtimeChannel? _gearChannel;
+  RealtimeChannel? _notesChannel;
 
   SyncState get state => _state;
   String? get lastError => _lastError;
@@ -103,6 +105,103 @@ class SyncService extends ChangeNotifier {
     final pushOk = await pushPending();
     final pullOk = await pullAll();
     return pushOk && pullOk;
+  }
+  /// Subscribe to realtime changes for the current user's gear + usage notes.
+  /// Call once on login.
+  void startRealtime() {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
+
+    // Avoid double-subscription
+    stopRealtime();
+
+    _gearChannel = _supabase
+        .channel('public:gear:user=${user.id}')
+        .onPostgresChanges(
+      event: PostgresChangeEvent.all,
+      schema: 'public',
+      table: 'gear',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'user_id',
+        value: user.id,
+      ),
+      callback: (payload) => _handleGearChange(payload),
+    )
+        .subscribe();
+
+    _notesChannel = _supabase
+        .channel('public:usage_notes:user=${user.id}')
+        .onPostgresChanges(
+      event: PostgresChangeEvent.all,
+      schema: 'public',
+      table: 'usage_notes',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'user_id',
+        value: user.id,
+      ),
+      callback: (payload) => _handleUsageNoteChange(payload),
+    )
+        .subscribe();
+  }
+
+  /// Tear down subscriptions. Call on logout.
+  Future<void> stopRealtime() async {
+    if (_gearChannel != null) {
+      await _supabase.removeChannel(_gearChannel!);
+      _gearChannel = null;
+    }
+    if (_notesChannel != null) {
+      await _supabase.removeChannel(_notesChannel!);
+      _notesChannel = null;
+    }
+  }
+
+  Future<void> _handleGearChange(PostgresChangePayload payload) async {
+    final dh = DatabaseHelper.instance;
+    final newRecord = payload.newRecord;
+
+    if (payload.eventType == PostgresChangeEvent.delete) {
+      final oldId = payload.oldRecord['id'] as String?;
+      if (oldId != null) {
+        await dh.softDeleteGear(oldId);
+        await dh.markGearClean(oldId);
+      }
+      notifyListeners();
+      return;
+    }
+
+    if (newRecord.isEmpty) {
+      notifyListeners();
+      return;
+    }
+
+    await _mergeGear([newRecord]);
+    notifyListeners();
+  }
+
+  Future<void> _handleUsageNoteChange(PostgresChangePayload payload) async {
+    final dh = DatabaseHelper.instance;
+    final newRecord = payload.newRecord;
+
+    if (payload.eventType == PostgresChangeEvent.delete) {
+      final oldId = payload.oldRecord['id'] as String?;
+      if (oldId != null) {
+        await dh.softDeleteUsageNote(oldId);
+        await dh.markUsageNoteClean(oldId);
+      }
+      notifyListeners();
+      return;
+    }
+
+    if (newRecord.isEmpty) {
+      notifyListeners();
+      return;
+    }
+
+    await _mergeUsageNotes([newRecord]);
+    notifyListeners();
   }
 
   Future<void> _pushPendingGear() async {
