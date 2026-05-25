@@ -31,6 +31,9 @@ class _SignupScreenState extends State<SignupScreen> {
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text,
       );
+
+      // Pop signup screen so AuthGate (now seeing a session) shows HomeScreen
+      if (mounted) Navigator.pop(context);
       // With email verification disabled, signup also signs in.
       // AuthGate will auto-switch to HomeScreen.
     } on AuthException catch (e) {

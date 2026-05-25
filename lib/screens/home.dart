@@ -7,6 +7,7 @@ import 'edit_gear.dart';
 import 'gear_detail.dart';
 import 'about.dart';
 import '../data/sync_service.dart';
+import 'settings.dart';
 
 /// Returns the Material Icon used for a given gear type.
 IconData iconForGearType(String type) {
@@ -297,6 +298,14 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
           IconButton(onPressed: _openAbout, icon: const Icon(Icons.info_outline)),
+          IconButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ),
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
+          ),
           IconButton(
             onPressed: () async {
               await Supabase.instance.client.auth.signOut();
